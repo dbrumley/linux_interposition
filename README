@@ -1,0 +1,60 @@
+**  Overview
+This project contains the library interposition code for Linux.  We
+use it to mine execution traces for bugs and other potentially
+valuable information.  We hook into a number of functions, and install
+mtrace() (a memory profiler to detect memory leaks) into malloc.
+
+** Build 
+To build, run 'make'
+
+** To use
+To use, run the application with LD_PRELOAD set to the built library,
+e.g.,
+  $  LD_PRELOAD=./libinterpose.so /bin/ls
+
+There are three additional environment variables. 
+
+1. The FAS_INTERPOSE_LOG environment variable determines where output
+is logged. If this variable is not set, nothing is logged.
+
+2. The MALLOC_TRACE environment variable determines where mtrace
+writes out its output. You can process the log data with the Linux
+command mtrace.
+
+3. The FAS_FUZZ_STRING environment variable determines the string we
+search for in input to determine whether the input is tainted. For
+example, this could be set to "AAA" to detect any string that contains
+"AAA". Note we do a string search for the FAS_FUZZ_STRING, not an
+exact match. 
+
+Given the above, a complete run may look like:
+
+$ LD_PRELOAD=./libinterpose.so FAS_FUZZ_STRING="AAA" \
+  FAS_INTERPOSE_LOG="/tmp/test.fas.log" \
+  MALLOC_TRACE="/tmp/test.mtrace.log" ./test AAAAAAA
+
+** Notes
+
+1. The code should work on x86_64 with minimal effort, though it is
+currently untested. The one exception is the function
+get_call_stack(). This function is not currently used; it's only
+provided for information purposes. However, if we ended up using it we
+would need to change it so that we used proper 64-bit calling
+conventions. 
+
+2. We walk the stack looking for the frame pointer, which only works
+reliabily when the program is compiled with a frame pointer.  It does
+not seem to crash when the frame pointer is omitted (but it certainly
+wouldn't get the correct information). 
+
+3. We don't hook calloc(). See note in interpose.c
+
+4. We only check sprintf() for a tainted format string. We do not
+record when the variatic arguments may contain input data. I'm not
+sure how to do this; it's something we should look into in the
+future. 
+
+5. The list of functions to intercept was taken from
+http://msdn.microsoft.com/en-us/library/bb288454.aspx 
+Functions on the list which we don't intercept include the "n"
+functions (e.g., strncpy), integer conversion (e.g., itoa).
