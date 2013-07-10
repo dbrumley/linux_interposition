@@ -34,6 +34,9 @@ static int mtrace_init = 0;
 /* The environment name of file we log to. If not set, no logging. */
 const char *log_envname = "FAS_INTERPOSE_LOG";
 
+/* When this environment variable is set, we log memory using mtrace */
+const char *log_mem_envname = "FAS_LOG_MEMORY";
+
 /* The environment variable name that has the fuzz string */
 const char *fuzz_envname = "FAS_FUZZ_STRING";
 
@@ -60,7 +63,7 @@ void logit(const char *fmt, ...)
     if(f == NULL)
       return;
   }
-  va_start(args, fmt);  
+  va_start(args, fmt);
   vfprintf(f, fmt, args);
   va_end(args);
 }
@@ -92,13 +95,13 @@ struct stack_frame {
   void* ret;                 /* return address */
 };
 
-/* 
+/*
    This is a simple variation of the glibc backtrace() function.  We
    don't use backtrace() because we want the frame pointers on the
    stack, and backtrace() just returns the return addresses on the
    stack. Note Matt has a nicer stackwalker that works for x86_64,
    which we now use. Included here for reference, but should be dead
-   code.  
+   code.
  */
 int get_call_stack(void** retaddrs, int max_size) {
   /* x86/gcc-specific: this tells gcc that the fp
@@ -166,16 +169,27 @@ unsigned int est_buf_len(unsigned int dest)
 char *strcpy(char *dest, const char *src)
 {
   static void* (*real_strcpy)(char *, const char*) = NULL;
-  
-  unsigned long buffer[100];
-  int len, nptrs;
+  int len, nptrs, j;
+  void *buffer[100];
+  char **strings;
 
   if(!real_strcpy)
     real_strcpy = dlsym(RTLD_NEXT, "strcpy");
   if(has_fuzzstring(src)){
     len = est_buf_len((unsigned int) dest);
-    logit("USER_CONTROLLABE_STRCPY: strcpy(%p,%p) : |%p| = %d\n", 
+    logit("USER_CONTROLLABE_STRCPY:strcpy(%p,%p):|%p| = %d:",
 	  dest, src, dest, len);
+    nptrs = backtrace(buffer, 100);
+    strings = backtrace_symbols(buffer, nptrs);
+    for(j = 0; j < nptrs; j++){
+      if(strings[j] != NULL)
+	logit("%s, ", strings[j]);
+      else if(buffer[j] != NULL)
+	logit("%p, ", buffer[j]);
+      else
+	logit("<missing>,");
+    }
+    logit("\n");
   }
   return real_strcpy(dest, src);
 }
@@ -189,7 +203,7 @@ char *strcat(char *dest, const char *src)
     real_strcat = dlsym(RTLD_NEXT, "strcat");
   if(has_fuzzstring(src)){
     len = est_buf_len((unsigned int) dest);
-    logit("USER_CONTROLLABE_STRCAT: strcat(%p,%p) : |%p| = %d\n", 
+    logit("USER_CONTROLLABE_STRCAT: strcat(%p,%p) : |%p| = %d\n",
 	  dest, src, dest, len);
   }
   return real_strcat(dest, src);
@@ -204,7 +218,7 @@ char *gets(char *s)
     real_gets = dlsym(RTLD_NEXT, "gets");
   if(has_fuzzstring(s)){
     len = est_buf_len((unsigned int) s);
-    logit("USER_CONTROLLABE_GETS: gets(%p) : |%p| = %d\n", 
+    logit("USER_CONTROLLABE_GETS: gets(%p) : |%p| = %d\n",
 	  s, s, len);
   }
   return real_gets(s);
@@ -277,11 +291,13 @@ int sprintf(char *str, const char *fmt, ...)
 
 void my_init_hook()
 {
-  mtrace();
+  if(getenv(log_mem_envname))
+    mtrace();
+   //    mcheck(NULL);
 }
 
 /* see man page for malloc_hook(). __malloc_initialize_hook is called
-   when malloc is initialized. Here we are saying to start mtrace. */  
+   when malloc is initialized. Here we are saying to start mtrace. */
 void (*__malloc_initialize_hook)(void) = my_init_hook;
 
 

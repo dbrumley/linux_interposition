@@ -8,8 +8,8 @@
 
 void copy_it(char *src)
 {
-  //  char buf[0xee];
-  //  strcpy(buf, src);
+  char buf[0xee];
+  strcpy(buf, src);
   printf("%s\n", src);
 }
 
